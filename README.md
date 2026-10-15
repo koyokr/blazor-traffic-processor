@@ -1,170 +1,74 @@
-# BlazorTrafficProcessor (BTP)
-A BurpSuite extension to aid pentesting web applications that use Blazor Server/BlazorPack. Primary functionality includes converting BlazorPack messages to JSON and vice versa, introduces tamperability for BlazorPack serialized messages.
+# BlazorTrafficProcessor Native WebSocket (BTP)
+A Burp Suite extension for inspecting and editing Blazor Server/BlazorPack messages over native WebSockets.
+
+This fork does not rewrite SignalR negotiation or downgrade WebSockets to Long Polling. In Burp's Proxy WebSockets history, select a binary `/_blazor` message and open the `BTP` editor tab to view its JSON representation. Edits made in an editable/intercept context are serialized back to BlazorPack with corrected length prefixes.
+
+The standalone `BTP` suite tab remains available for ad-hoc BlazorPack/JSON conversion.
 
 ## Build
 
-### Prerequisites
-- Install [Java 18](https://www.oracle.com/java/technologies/javase/jdk18-archive-downloads.html) on your building machine.
-- Install [Gradle](https://gradle.org/install/) on your building machine.
-- Ensure the `JAVA_HOME` environment variable is set to the JDK 18 path if you have multiple versions of Java installed.
-    - _NOTE: This project requires Java 17+._
+Run `./gradlew clean test jar`. The loadable extension is written to `build/libs/BlazorTrafficProcessor-1.1-native-ws.jar`.
 
-### Build Steps
-1. Clone the repository with `git clone https://github.com/AonCyberLabs/BlazorTrafficProcessor`
-2. `cd BlazorTrafficProcessor`
-3. `gradle build`
-4. The built JAR file will be located at `BlazorTrafficProcessor/build/libs/BlazorTrafficProcessor-1.0.jar`
+Requires JDK 25 to build. The classes target Java 21, so they load in Burp Suite with Montoya API 2026.7 support running on Java 21 or later. The included Gradle Wrapper handles the build tool; no global Gradle or Kotlin installation is required.
+
+Production sources are in `src/main/kotlin`, compiled with Kotlin/JVM 2.3.21. The JAR bundles the Kotlin standard library and runtime dependencies; Montoya API is provided by Burp. The entry point remains `com.gdssecurity.BlazorTrafficProcessor`, and installation still uses Burp's **Java** extension type.
+
+Tests in `src/test/kotlin` cover the codec, framing, binary analysis and the HTTP and WebSocket editors. A separate smoke test loads the packaged JAR with an isolated class loader and initializes the extension against Montoya test doubles.
 
 ## Usage
 
-### Installing the extension in Burp 
-* Download the latest `.jar` from the Releases page or build the project manually.
-  * _The project has been submitted to the BApp store and is pending review_.
-* Load the extension into Burp
-  1. Click "Extender"
-  2. Under "Extensions", click "Add"
-  3. In the file selector, choose the downloaded/built `.jar` file
+### Installing the extension in Burp
 
-**NOTE: it is recommended to check "Other Binary" in your Burp History filter, this will allow you to see data returned by the application.**
+Load the built JAR as a Java extension from Burp's Extensions settings. Remove the original BTP 1.0 extension first because it rewrites SignalR negotiation independently.
 
 ### Using the Extension
-* All BlazorPack-enabled requests or responses will be highlighted as Cyan within the "Http History" tab in Burpsuite.
-* The "BTP" request/response editor tab, which appears on each in-scope request or response that contains BlazorPack messages. 
-  * Clicking on this tab will convert the serialized data from BlazorPack to JSON.
-  * After editing the JSON (either in Intercept or Repeater), click the "Raw" tab to re-serialize with your payloads
+* Native WebSocket negotiation is left untouched.
+* A `BTP` tab appears on structurally valid BlazorPack messages under Proxy WebSockets history and WebSocket interception.
+  * Opening the tab converts BlazorPack to formatted JSON.
+  * Binary arguments retain their editable `BinaryBytes` hex and include a derived `BinaryAnalysis`. For `JS.RenderBatch`, the analysis extracts component edits, reference frames, disposed IDs, and the UTF-8 string table.
+  * Editing the JSON serializes it back to BlazorPack when Burp applies the message.
+  * In read-only Proxy WebSockets history, consecutive binary rows from the same WebSocket and direction are reassembled when one length-prefixed BlazorPack message spans multiple transport chunks. Intercepted fragments remain unmodified and are never merged on the wire.
 * The "BTP" Burpsuite tab, which allows for ad-hoc conversions of Blazor->JSON and JSON->Blazor
   * The left-hand editor is for your input (JSON or raw Blazor)
   * The right-hand editor is for the results of the conversion
   * A drop-down menu on the bottom of the window lets you select "Blazor->JSON" or "JSON->Blazor"
   * The Serialize/Deserialize button at the top is how you trigger the conversion
-* Right-click menu option called "Send body to BTP tab"
-  * You can right-click any request or response and select "Extensions" -> "BlazorTrafficProcessor" -> "Send body to BTP tab"
-  * This sends either the selected request or response body to the BTP tab, so you don't have to worry about copying/pasting raw bytes
+* The standalone tab and existing HTTP body context-menu conversion remain available.
 
-## Downgrade Explained (WS -> HTTP)
-Blazor server normally communicates via WebSockets, though it supports other protocols such as LongPolling over HTTP.
-During the connection initiation between your browser and the server, one of the first requests sent will look like the following:
-```http
-POST /_blazor/negotiate?negotiateVersion=1 HTTP/1.1
-Host: localhost:5003
-[...]
-X-Requested-With: XMLHttpRequest
-X-SignalR-User-Agent: Microsoft SignalR/0.0 (0.0.0-DEV_BUILD; Unknown OS; Browser; Unknown Runtime Version)
-[...]
-```
+## JSON representation and compatibility
 
-The response will contain the available transports as follows:
-```http
-HTTP/1.1 200 OK
-Content-Length: 316
-Connection: close
-Content-Type: application/json
-Date: Thu, 22 Sep 2022 13:30:17 GMT
-Server: Kestrel
+The codec follows the [SignalR MessagePack schema](https://github.com/dotnet/aspnetcore/blob/main/src/SignalR/docs/specs/HubProtocol.md#messagepack-msgpack-encoding). It accepts both five-field legacy invocations and six-field invocations with a proper `StreamIds` array, as supported by [ASP.NET Core's shared protocol worker](https://github.com/dotnet/aspnetcore/blob/main/src/SignalR/common/Protocols.MessagePack/src/Protocol/MessagePackHubProtocolWorker.cs).
 
-{"negotiateVersion":1,
-  "connectionId":"XXX",
-  "connectionToken":"XXX",
-  "availableTransports":[
-    {"transport":"WebSockets","transferFormats":["Text","Binary"]},
-    {"transport":"ServerSentEvents","transferFormats":["Text"]},
-    {"transport":"LongPolling","transferFormats":["Text","Binary"]}
-  ]
-}
-```
+For example:
 
-This negotiation determines how the client and server will establish their connection. WebSockets is the preferred method but Burp previously didn't have the best support for WS extensions**, so we need to force the connection over HTTP in order to use the extension.
-Therefore, the browser (and JavaScript running in it) that you're proxying traffic through will see that websockets aren't supported and fall back to using HTTP ("LongPolling").
-BTP will automatically perform this downgrade, observable via the Original/Modified versions of the Blazor negotiation HTTP response.
-
-** Note: Support for BlazorPack over WS is currently under development as there are newer iterations of Burp's Montoya APIs being released frequently with improved WS functionality.
-
-## Example Requests
-
-### Change value of an Input Field
-Request Body:
-```text
-ºÀ·BeginInvokeDotNetFromJS¡2À²DispatchEventAsyncÙ[{"eventHandlerId":4,"eventName":"change","eventFieldInfo":{"componentId":27,"fieldValue":"asdfasdfasdf"}},{"value":"asdfasdfasdf"}]
-```
-
-Deserialized:
 ```json
 [
   {
-    "Target":"BeginInvokeDotNetFromJS",
-    "Headers":0,
-    "Arguments":[
-      "2","null","DispatchEventAsync",1, [
-        {"eventFieldInfo": {"componentId":27,"fieldValue":"asdfasdfasdf"}, 
-        "eventHandlerId":4,"eventName":"change"},
-        {"value":"asdfasdfasdf"}
-      ]
-    ],
-  "MessageType":1
+    "MessageType": 1,
+    "Headers": 0,
+    "Target": "Echo",
+    "Arguments": [null, "null", "[1,2]", [1, 2]],
+    "StreamIds": ["stream-1"]
   }
 ]
 ```
 
-### Update the rendered web page
-Request body:
-```text
-À±OnRenderCompletedÀ
-```
+JSON `null` is MessagePack nil; the string `"null"` remains a string. Strings containing JSON or NUL characters are preserved as strings. JSON arrays represent MessagePack arrays. This corrects the older editor's ambiguous string coercions; update saved JSON snippets that used strings as nil or arrays as JSON-encoded strings.
 
-Deserialized:
-```json
-[
-  {
-    "Target":"OnRenderCompleted",
-    "Headers":0,
-    "Arguments":[5,"null"],
-    "MessageType":1
-  }
-]
-```
+Empty headers display as `0`; nonempty headers display as an object of string keys and string values. Binary values use `BinaryHeader` and `BinaryBytes`; the byte count must match the hex length. `BinaryAnalysis` is derived and ignored during serialization. An object with both `BinaryHeader` and `BinaryBytes` is always a binary value and may contain no keys other than `BinaryAnalysis`. Maps that would be ambiguous as JSON objects (non-string or duplicate keys, both binary wrapper keys, or a sole `MapEntries` key) display as `{"MapEntries": [[key, value], ...]}`.
 
-### End an invocation
-Request body (What you'll see in Burp):
-```text
-+ÀµEndInvokeJSFromDotNetÃ­[3,true,null]
-```
+Ping and StreamItem now include their required array headers. Close writes its error once. Ack (8) and Sequence (9) use `SequenceId` as a 64-bit integer. Completion distinguishes error, void and value results and rejects invalid result kinds or inconsistent fields. Non-invocation messages requiring an invocation ID reject missing or empty IDs. Unknown message types, MessagePack extensions and non-finite values are not editable.
 
-Request body bytes (What you'll see in the "Inspector" tab if you highlight the request body)
-```text
-\x2b\x95\x01\x80\xc0\xb5EndInvokeJSFromDotNet\x93\x03\xc3\xad[3,true,null]
-[length][MessageType,Headers,InvocationId,Target,[Arguments]]
-[\x2b][MessageType=\x01,Headers=\x80,InvocationId=\xc0,Target=\xb5EndInvokeJSFromDotNet,Arguments=[One=\x03,Two=\xc3,Three=\xad[3,true,null]]]
-```
+HTTP requests and WebSocket messages retain their original bytes when unchanged, read-only, undecodable or unsuccessfully edited. When a payload is edited, messages whose values are unchanged keep their original frame bytes; edited messages are re-encoded, so a float32 inside one becomes float64. Floats always display with a decimal point or exponent and stay floats. HTTP responses are read-only previews. Reassembly is available only in read-only WebSocket history; it never replaces a transport chunk on the wire.
 
-#### Byte Breakdown
-_[InvocationMessage Encoding Spec](https://github.com/dotnet/aspnetcore/blob/main/src/SignalR/docs/specs/HubProtocol.md#invocation-message-encoding-1)_
+## Implementation and limits
 
-1. `\x2b` - the size byte for this payload, value = 43
-   * [CyberChef Formula](https://gchq.github.io/CyberChef/#recipe=From_Hex('Auto')VarInt_Decode()&input=MmI)
-2. `\x95` - an array header, representing a 5-element array
-3. `\x01` - integer w/ value of 1, representing the message type (Invocation)
-4. `\x80` - Map of length 0, representing the headers (only seen empty map while testing)
-5. `\xc0` - NIL, representing the invocationId is null
-6. `\xb5` - Raw string header of length 21, representing the "Target"
-7. `EndInvokeJSFromDotNet` - the "Target" raw string
-8. `\x93` - an array header, representing a 3-element array for the arguments
-9. `\x03` - integer w/ value of 3, first argument to the "Target" function
-10. `\xc3` - boolean w/ value of true, second argument to the "Target" function
-11. `\xad` - Raw string header of length 13, representing the third argument to the "Target" function
-12. `[3,true,null]` - the third argument raw string
+The immutable `HubMessage` sealed model is separate from JSON and MessagePack conversion. `BlazorHelper` has no Burp dependency and returns Kotlin `Result` values; a failed conversion never returns a partial message list or partially serialized payload.
 
-Deserialized:
-```json
-[
-  {
-    "Target":"EndInvokeJSFromDotNet",
-    "Headers":0,
-    "Arguments": [
-      3,true,
-      [3,true,null]
-    ],
-    "MessageType":1
-  }
-]
-```
+Frame processing uses offsets into the original byte array. VarInt decoding tracks consumed bytes directly, supports at most five bytes, and checks the 2 GB numeric limit. Structural validation checks nesting, declared lengths, field types/counts and trailing data before exposing messages. Reassembly inspects a growing buffer and copies only a successful result.
+
+Editor resource limits are 8 MiB per frame, 32 MiB per transport payload, 100,000 messages per payload, 100,000 MessagePack values per frame and 64 nesting levels. JSON conversion has corresponding value/depth limits and a 32 Mi-character text limit. Oversized input is rejected; it is not truncated or sent.
+
+Run `./gradlew clean test jar` for protocol fixtures, malformed-input cases, HTTP/WebSocket preservation tests and the isolated-JAR loading check. A real Burp GUI loading check remains a separate manual step.
+
 Copyright 2023 Aon plc
