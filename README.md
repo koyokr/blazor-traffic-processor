@@ -7,11 +7,11 @@ The standalone `BTP` suite tab remains available for ad-hoc BlazorPack/JSON conv
 
 ## Build
 
-Run `./gradlew clean test jar`. The loadable extension is written to `build/libs/BlazorTrafficProcessor-1.1-native-ws.jar`.
+Run `./gradlew clean build`. The loadable extension is written to `build/libs/BlazorTrafficProcessor-1.1-native-ws.jar`.
 
-Requires JDK 25 to build. The classes target Java 21, so they load in Burp Suite with Montoya API 2026.7 support running on Java 21 or later. The included Gradle Wrapper handles the build tool; no global Gradle or Kotlin installation is required.
+Builds use the current host JDK without downloading or pinning a Java toolchain. Kotlin and Java compilation target Java 21 bytecode and JDK APIs, for Burp Suite with Montoya API 2026.7 support on Java 21 or later. The included Gradle Wrapper 9.7.0 (bin) handles the build tool; no global Gradle or Kotlin installation is required.
 
-Production sources are in `src/main/kotlin`, compiled with Kotlin/JVM 2.3.21. The JAR bundles the Kotlin standard library and runtime dependencies; Montoya API is provided by Burp. The entry point remains `com.gdssecurity.BlazorTrafficProcessor`, and installation still uses Burp's **Java** extension type.
+Production sources are in `src/main/kotlin`, compiled with Kotlin/JVM 2.4.21 using Kotlin DSL build/settings scripts. The JAR bundles the Kotlin standard library and runtime dependencies; Montoya API is provided by Burp. The entry point remains `com.gdssecurity.BlazorTrafficProcessor`, and installation still uses Burp's **Java** extension type.
 
 Tests in `src/test/kotlin` cover the codec, framing, binary analysis and the HTTP and WebSocket editors. A separate smoke test loads the packaged JAR with an isolated class loader and initializes the extension against Montoya test doubles.
 
@@ -69,6 +69,6 @@ Frame processing uses offsets into the original byte array. VarInt decoding trac
 
 Editor resource limits are 8 MiB per frame, 32 MiB per transport payload, 100,000 messages per payload, 100,000 MessagePack values per frame and 64 nesting levels. JSON conversion has corresponding value/depth limits and a 32 Mi-character text limit. Oversized input is rejected; it is not truncated or sent.
 
-Run `./gradlew clean test jar` for protocol fixtures, malformed-input cases, HTTP/WebSocket preservation tests and the isolated-JAR loading check. A real Burp GUI loading check remains a separate manual step.
+Run `./gradlew clean build` for protocol fixtures, malformed-input cases, HTTP/WebSocket preservation tests and the isolated-JAR loading check. A real Burp GUI loading check remains a separate manual step.
 
 Copyright 2023 Aon plc
