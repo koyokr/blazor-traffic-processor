@@ -11,6 +11,7 @@ import javax.swing.KeyStroke
 import javax.swing.Timer
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
+import javax.swing.text.DefaultEditorKit
 import javax.swing.text.DefaultStyledDocument
 import javax.swing.text.DefaultStyledDocument.ElementSpec
 import javax.swing.text.SimpleAttributeSet
@@ -84,6 +85,8 @@ internal class UnicodeTextEditor : JTextPane() {
         val shown = if (json) lines.joinToString("\n") { it.trimStart(' ') } else value
         // Build the whole styled document in one pass while detached; per-run attribute changes are far slower.
         val doc = BulkStyledDocument()
+        // Content already carries its line breaks; do not translate LF to the host OS separator.
+        doc.putProperty(DefaultEditorKit.EndOfLineStringProperty, "\n")
         val base = doc.getStyle(StyleContext.DEFAULT_STYLE).apply {
             StyleConstants.setFontFamily(this, font.family)
             StyleConstants.setFontSize(this, font.size)

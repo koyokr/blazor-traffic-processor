@@ -18,6 +18,7 @@ package com.gdssecurity.helpers
 object BTPConstants {
     const val EXTENSION_NAME = "BlazorTrafficProcessor"
     const val CAPTION = "BTP"
-    const val LOADED_LOG_MSG = "[+] BTP v1.1.1 Extension loaded."
-    const val UNLOADED_LOG_MSG = "[*] BTP v1.1.1 Extension unloaded."
+    val VERSION: String = BTPConstants::class.java.`package`.implementationVersion ?: "dev"
+    val LOADED_LOG_MSG = "Loaded $EXTENSION_NAME v$VERSION"
+    val UNLOADED_LOG_MSG = "Unloaded $EXTENSION_NAME v$VERSION"
 }

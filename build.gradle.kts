@@ -41,8 +41,9 @@ tasks.test {
 
 tasks.jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    archiveVersion = ""
     manifest {
-        attributes("Main-Class" to "com.gdssecurity.BlazorTrafficProcessor")
+        attributes("Main-Class" to "com.gdssecurity.BlazorTrafficProcessor", "Implementation-Version" to version)
     }
     from({
         configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) }

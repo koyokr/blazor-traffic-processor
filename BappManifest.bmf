@@ -8,6 +8,6 @@ MinPlatformVersion: 7
 ProOnly: False
 Author: Will Rabb, Aon's Cyber Labs, Younghun Ko
 ShortDescription: Aids pentesting web applications that use Blazor Server/BlazorPack.
-EntryPoint: BlazorTrafficProcessor-1.1.1.jar
+EntryPoint: BlazorTrafficProcessor.jar
 BuildCommand: ./gradlew jar
 SupportedProducts: Pro, Community

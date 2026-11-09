@@ -7,7 +7,7 @@ The top-level `BTP` suite tab contains project settings; inspection and editing 
 
 ## Build
 
-Run `./gradlew clean build`. The loadable extension is written to `build/libs/BlazorTrafficProcessor-1.1.1.jar`.
+Run `./gradlew clean build`. The loadable extension is written to `build/libs/BlazorTrafficProcessor.jar`.
 
 Builds use the current host JDK without downloading or pinning a Java toolchain. Kotlin and Java compilation target Java 21 bytecode and JDK APIs, for Burp Suite with Montoya API 2026.7 support on Java 21 or later. The included Gradle Wrapper 9.7.0 (bin) handles the build tool; no global Gradle or Kotlin installation is required.
 

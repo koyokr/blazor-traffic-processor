@@ -140,6 +140,28 @@ class UnicodeTextEditorTest {
     }
 
     @Test
+    fun multilineUndoPreservesLineBreaksAndRestoresTheUnmodifiedState() = SwingUtilities.invokeAndWait {
+        val editor = UnicodeTextEditor()
+        for (separator in listOf("\n", "\r\n")) {
+            for (json in listOf(false, true)) {
+                val original = "[${separator}\"한글\"${separator}]"
+                editor.display(original, json = json)
+                editor.isEditable = true
+                assertEquals(original, editor.text)
+                assertFalse(editor.isContentModified())
+                editor.document.insertString(editor.document.length, " ", null)
+                assertTrue(editor.isContentModified())
+                editor.actionMap.get("undo").actionPerformed(null)
+                assertEquals(original, editor.text)
+                assertFalse(editor.isContentModified())
+                editor.actionMap.get("redo").actionPerformed(null)
+                assertEquals("$original ", editor.text)
+                assertTrue(editor.isContentModified())
+            }
+        }
+    }
+
+    @Test
     fun unfinishedStringsDoNotCrossLineBreaks() {
         for (text in listOf("\"abc\n1", "\"abc\\\n1")) {
             val tokens = jsonTokens(text)
