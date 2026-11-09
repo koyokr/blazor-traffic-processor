@@ -56,6 +56,9 @@ sealed interface BatchOutcome {
  * IDs resolve to the element they are bound to. A component is mirrored only from a creation BTP witnessed (root
  * attach or a placeholder inserted by a mirrored parent); any edit the browser would reject drops it, because a guessed
  * tree would attribute events to the wrong element.
+ *
+ * [maxNodes] caps the mirrored tree and also how many reference frames one batch may expand: insertions can reuse one
+ * reference subtree any number of times, so a small batch could otherwise allocate without bound.
  */
 class RenderTreeMirror(private val maxNodes: Int = 50_000) {
     private sealed interface Node
@@ -70,11 +73,12 @@ class RenderTreeMirror(private val maxNodes: Int = 50_000) {
 
     private class Binding(val element: Element, val eventName: String)
     private class Desync : RuntimeException(null, null, false, false)
+    private class OverBudget : RuntimeException(null, null, false, false)
 
     private val mirrored = HashMap<Int, MutableList<Node>>()
     private val bindings = HashMap<EventHandlerId, Binding>()
     private var lastBatchId: Long? = null
-    private var nodes = 0
+    private var frameBudget = 0
 
     fun attachRoot(componentId: Int) {
         release(componentId)
@@ -88,13 +92,17 @@ class RenderTreeMirror(private val maxNodes: Int = 50_000) {
         if (last != null && batchId != last + 1) invalidate()
         lastBatchId = batchId
         val changes = mutableListOf<RenderChange>()
-        for (diff in batch.updatedComponents) Diff(diff.componentId, batch.referenceFrames, changes).run(diff.edits)
-        batch.disposedComponentIds.forEach(::release)
-        for (id in batch.disposedEventHandlerIds) {
-            val binding = bindings.remove(id) ?: continue
-            binding.element.handlers.remove(binding.eventName, id)
-        }
-        if (nodes > maxNodes || bindings.size > maxNodes || mirrored.size > maxNodes) {
+        frameBudget = maxNodes
+        try {
+            for (diff in batch.updatedComponents) Diff(diff.componentId, batch.referenceFrames, changes).run(diff.edits)
+            batch.disposedComponentIds.forEach(::release)
+            for (id in batch.disposedEventHandlerIds) {
+                val binding = bindings.remove(id) ?: continue
+                binding.element.handlers.remove(binding.eventName, id)
+            }
+            val nodes = mirrored.values.sumOf { children -> children.sumOf(::size) }
+            if (nodes > maxNodes || bindings.size > maxNodes || mirrored.size > maxNodes) throw OverBudget()
+        } catch (_: OverBudget) {
             invalidate()
             changes += RenderChange.Overflow
         }
@@ -107,7 +115,6 @@ class RenderTreeMirror(private val maxNodes: Int = 50_000) {
     fun invalidate() {
         mirrored.clear()
         bindings.clear()
-        nodes = 0
     }
 
     private fun release(componentId: Int) {
@@ -116,7 +123,6 @@ class RenderTreeMirror(private val maxNodes: Int = 50_000) {
     }
 
     private fun detach(node: Node) {
-        nodes--
         if (node !is Element) return
         for ((eventName, id) in node.handlers) {
             if (bindings[id]?.let { it.element === node && it.eventName == eventName } == true) bindings.remove(id)
@@ -143,7 +149,6 @@ class RenderTreeMirror(private val maxNodes: Int = 50_000) {
                 edits.forEach { apply(it, parent!!) }
             } catch (_: Desync) {
                 release(componentId)
-                nodes = mirrored.values.sumOf { children -> children.sumOf(::size) }
                 changes += RenderChange.Unsynchronized(componentId)
             }
         }
@@ -233,6 +238,7 @@ class RenderTreeMirror(private val maxNodes: Int = 50_000) {
 
         private fun build(index: Int, depth: Int, insideElement: Boolean, out: MutableList<Node>) {
             ensure(depth < MAX_DEPTH)
+            spendFrame()
             when (val frame = frames.getOrNull(index) ?: throw Desync()) {
                 is RenderFrame.Element -> {
                     val end = subtreeEnd(index, frame.subtreeLength, frames.size)
@@ -240,6 +246,7 @@ class RenderTreeMirror(private val maxNodes: Int = 50_000) {
                     var child = index + 1
                     while (child < end) {
                         val attribute = frames[child] as? RenderFrame.Attribute ?: break
+                        spendFrame()
                         setAttribute(element, attribute)
                         child++
                     }
@@ -299,7 +306,6 @@ class RenderTreeMirror(private val maxNodes: Int = 50_000) {
         }
 
         private fun attach(node: Node) {
-            nodes++
             when (node) {
                 is Element -> {
                     node.handlers.keys.forEach { bind(node to it) }
@@ -334,6 +340,10 @@ class RenderTreeMirror(private val maxNodes: Int = 50_000) {
 
         private fun ensure(condition: Boolean) {
             if (!condition) throw Desync()
+        }
+
+        private fun spendFrame() {
+            if (--frameBudget < 0) throw OverBudget()
         }
     }
 

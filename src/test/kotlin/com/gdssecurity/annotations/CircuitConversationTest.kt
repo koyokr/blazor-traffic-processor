@@ -15,6 +15,8 @@ import com.gdssecurity.helpers.RenderFrame
 import com.gdssecurity.messages.HubMessage
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.function.ThrowingSupplier
+import java.time.Duration
 
 class CircuitConversationTest {
     private val conversation = CircuitConversation()
@@ -178,6 +180,31 @@ class CircuitConversationTest {
             fresh.annotate(Flow.CLIENT_TO_SERVER, send(invocation("OnRenderCompleted", 2, "TypeError: synthetic"))))
         assertEquals("C>S UI click listener=unknown (handler 2, call 2)",
             fresh.annotate(Flow.CLIENT_TO_SERVER, send(dispatchEvent("2", 2, "click", "{}"))))
+    }
+
+    @Test
+    fun resetsLabelsWhenOneBatchReusesASubtreeBeyondTheNodeBudget() {
+        renderLoginForm()
+        val subtree = listOf(element("div", 3_001)) + List(3_000) { element("div", 1) }
+        val insertions = List(3_000) { RenderEdit.PrependFrame(0, 0) }.toTypedArray()
+
+        val note = assertTimeoutPreemptively(Duration.ofSeconds(5), ThrowingSupplier {
+            server(renderBatch(3, diff(1, *insertions), frames = subtree))
+        })
+
+        assertEquals("S>C RENDER patch batch 3: tree exceeds the node budget (element labels reset)", note)
+        assertEquals("C>S UI click listener=unknown (handler 2, call 1)", client(dispatchEvent("1", 2, "click", "{}")))
+    }
+
+    @Test
+    fun resetsLabelsWhenDescribingAnUnsyncedComponentExceedsTheNodeBudget() {
+        renderLoginForm()
+        val subtree = listOf(element("div", 1_001)) + List(1_000) { element("div", 1) }
+        val insertions = List(100) { RenderEdit.PrependFrame(0, 0) }.toTypedArray()
+
+        assertEquals("S>C RENDER patch batch 3: tree exceeds the node budget (element labels reset) unsynced components 9",
+            server(renderBatch(3, diff(9, *insertions), frames = subtree)))
+        assertEquals("C>S UI click listener=unknown (handler 2, call 1)", client(dispatchEvent("1", 2, "click", "{}")))
     }
 
     @Test

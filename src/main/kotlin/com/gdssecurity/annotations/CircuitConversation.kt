@@ -265,7 +265,8 @@ class CircuitConversation(private val tree: RenderTreeMirror = RenderTreeMirror(
                 items += "unset ${change.target?.describe(RENDER_TEXT_LIMIT) ?: "?"} ${token(change.name, VALUE_LIMIT)}"
             RenderChange.Removed -> removed++
             is RenderChange.Unsynchronized -> unsynchronized += change.componentId
-            RenderChange.Overflow -> items += "tree exceeds the node budget (element labels reset)"
+            // First, because the changes before an overflow can fill the note on their own.
+            RenderChange.Overflow -> items.add(0, "tree exceeds the node budget (element labels reset)")
         }
         if (removed > 0) items += "removed $removed"
         if (unsynchronized.isNotEmpty()) items += "unsynced components ${unsynchronized.take(5).joinToString(",")}" +
