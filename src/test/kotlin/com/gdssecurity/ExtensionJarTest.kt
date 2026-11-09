@@ -58,12 +58,14 @@ class ExtensionJarTest {
             }
             assertEquals(3, providers.size)
             for (registration in listOf("registerHttpRequestEditorProvider", "registerHttpResponseEditorProvider",
-                "registerWebSocketMessageEditorProvider", "registerSuiteTab", "registerContextMenuItemsProvider",
+                "registerWebSocketMessageEditorProvider", "registerSuiteTab",
                 "registerUnloadingHandler")) {
                 assertEquals(1, calls.count { it.endsWith(".$registration") })
             }
-            assertEquals(2, calls.count { it == "Logging.logToOutput" })
-            assertFalse(calls.any { it.startsWith("Proxy.") || it == "MontoyaApi.proxy" || it == "MontoyaApi.http" })
+            assertFalse(calls.any { it.endsWith(".registerContextMenuItemsProvider") })
+            assertEquals(listOf("Proxy.registerWebSocketCreationHandler"), calls.filter { it.startsWith("Proxy.") })
+            assertEquals(1, calls.count { it == "Registration.deregister" })
+            assertFalse(calls.any { it == "MontoyaApi.http" })
         }
     }
 
@@ -75,6 +77,8 @@ class ExtensionJarTest {
             val result = method.returnType
             when {
                 name == "uiComponent" -> JPanel()
+                name == "currentEditorFont" -> null
+                type.simpleName == "PersistedObject" && name in setOf("getBoolean", "getString") -> null
                 result == Void.TYPE -> null
                 result.isEnum -> result.enumConstants[0]
                 result.isInterface -> stub(result, calls, providers)

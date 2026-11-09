@@ -67,16 +67,16 @@ class BlazorHelper {
         }
     }
 
-    fun toJson(messages: List<HubMessage>): JSONArray =
-        JSONArray().apply { messages.forEach { put(HubCodec.toJson(it)) } }
+    fun toJson(messages: List<HubMessage>, binaryAnalysis: Boolean = true): JSONArray =
+        JSONArray().apply { messages.forEach { put(HubCodec.toJson(it, binaryAnalysis)) } }
 
     fun packJson(text: String, original: ByteArray? = null): Result<ByteArray> = runCatching {
         require(text.length <= BlazorFrames.MAX_FRAME_BYTES * 4) { "JSON text exceeds the editor size limit." }
         pack(JSONArray(text), original).getOrThrow()
     }
 
-    fun unpackJson(bytes: ByteArray, indent: Int = 3): Result<String> =
-        unpack(bytes).mapCatching { toJson(it).toString(indent) }
+    fun unpackJson(bytes: ByteArray, indent: Int = 3, binaryAnalysis: Boolean = true): Result<String> =
+        unpack(bytes).mapCatching { toJson(it, binaryAnalysis).toString(indent) }
 
     /** HTTP header boundaries are byte offsets, not offsets into a decoded Unicode string. */
     fun getBodyOffset(bytes: ByteArray): Int {

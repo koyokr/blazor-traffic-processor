@@ -198,7 +198,8 @@ internal object HubCodec {
         return fromWire(ValueFactory.newArray(fields))
     }
 
-    fun toJson(message: HubMessage): JSONObject {
+    fun toJson(message: HubMessage, binaryAnalysis: Boolean = true): JSONObject {
+        fun jsonValue(value: Value, target: String? = null): Any = jsonValue(value, target, binaryAnalysis)
         fun base(type: Int, headers: ImmutableMapValue, id: String?): JSONObject =
             JSONObject().put("MessageType", type)
                 .put("Headers", if (headers.size() == 0) 0 else jsonValue(headers))
@@ -294,7 +295,7 @@ internal object HubCodec {
         }
     }
 
-    private fun jsonValue(value: Value, target: String? = null): Any = when (value.valueType) {
+    private fun jsonValue(value: Value, target: String?, binaryAnalysis: Boolean): Any = when (value.valueType) {
         ValueType.NIL -> JSONObject.NULL
         ValueType.BOOLEAN -> value.asBooleanValue().boolean
         ValueType.INTEGER -> value.asIntegerValue().asBigInteger()
@@ -305,9 +306,9 @@ internal object HubCodec {
         ValueType.STRING -> value.asStringValue().asString()
         ValueType.BINARY -> value.asBinaryValue().asByteArray().let {
             JSONObject().put("BinaryHeader", it.size).put("BinaryBytes", hex.formatHex(it))
-                .put("BinaryAnalysis", BinaryPayloadAnalyzer.analyze(it, target))
+                .apply { if (binaryAnalysis) put("BinaryAnalysis", BinaryPayloadAnalyzer.analyze(it, target)) }
         }
-        ValueType.ARRAY -> JSONArray().apply { value.asArrayValue().forEach { put(jsonValue(it, target)) } }
+        ValueType.ARRAY -> JSONArray().apply { value.asArrayValue().forEach { put(jsonValue(it, target, binaryAnalysis)) } }
         ValueType.MAP -> {
             val map = value.asMapValue()
             // Keep plain objects unambiguous; any other map is written as ordered key/value pairs.
@@ -315,11 +316,11 @@ internal object HubCodec {
             val keys = (pairs.indices step 2).mapNotNull { pairs[it].takeIf(Value::isStringValue)?.asStringValue()?.asString() }
             val names = keys.toSet()
             if (keys.size == map.size() && names.size == keys.size && !isBinaryWrapper(names) && names != setOf(MAP_ENTRIES)) {
-                JSONObject().apply { keys.forEachIndexed { i, key -> put(key, jsonValue(pairs[2 * i + 1], target)) } }
+                JSONObject().apply { keys.forEachIndexed { i, key -> put(key, jsonValue(pairs[2 * i + 1], target, binaryAnalysis)) } }
             } else {
                 JSONObject().put(MAP_ENTRIES, JSONArray().apply {
                     for (index in pairs.indices step 2) {
-                        put(JSONArray().put(jsonValue(pairs[index], target)).put(jsonValue(pairs[index + 1], target)))
+                        put(JSONArray().put(jsonValue(pairs[index], target, binaryAnalysis)).put(jsonValue(pairs[index + 1], target, binaryAnalysis)))
                     }
                 })
             }

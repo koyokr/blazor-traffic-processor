@@ -64,6 +64,21 @@ class BlazorHelperTest {
     }
 
     @Test
+    fun disablingAnalysisPropagatesThroughNestedMapsArraysAndCompletionValues() {
+        val codec = BlazorHelper()
+        val payload = codec.packJson("""[
+            {MessageType:1,Headers:0,Target:Echo,Arguments:[{nested:[{BinaryHeader:3,BinaryBytes:'616263'}]}]},
+            {MessageType:3,Headers:0,InvocationId:'1',ResultKind:3,Result:{BinaryHeader:3,BinaryBytes:'616263'}},
+            {MessageType:2,Headers:0,InvocationId:'2',Item:{MapEntries:[[{BinaryHeader:3,BinaryBytes:'616263'},1]]}}
+        ]""").getOrThrow()
+        val json = codec.unpackJson(payload, binaryAnalysis = false).getOrThrow()
+        assertFalse(json.contains("BinaryAnalysis"))
+        assertTrue(json.contains("616263"))
+        assertArrayEquals(payload, codec.packJson(json).getOrThrow())
+        assertTrue(codec.unpackJson(payload).getOrThrow().contains("BinaryAnalysis"))
+    }
+
+    @Test
     fun binaryArgumentsRetainBytesAndDerivedAnalysisIsIgnoredWhenPacking() {
         val binary = ByteArray(300) { it.toByte() }
         val body = MessagePack.newDefaultBufferPacker().use {

@@ -26,6 +26,7 @@ import burp.api.montoya.http.message.responses.HttpResponse
 import burp.api.montoya.internal.MontoyaObjectFactory
 import burp.api.montoya.internal.ObjectFactoryLocator
 import burp.api.montoya.ui.editor.extension.EditorMode
+import com.gdssecurity.settings.BTPSettings
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -103,6 +104,21 @@ class BTPHttpEditorsTest {
         assertFalse(BTPHttpResponseEditor(api, EditorMode.DEFAULT).isEnabledFor(ordinary))
         assertEquals(0, scopeLookups)
         assertEquals(0, bodyReads)
+    }
+
+    @Test
+    fun customPathsApplyToBothHttpEditorsWithoutMatchingQueryText() {
+        val settings = BTPSettings().apply { save(true, true, "/app/hub", true) }
+        val requestEditor = BTPHttpRequestEditor(api, EditorMode.DEFAULT, settings)
+        val responseEditor = BTPHttpResponseEditor(api, EditorMode.DEFAULT, settings)
+        for ((url, expected) in listOf(
+            "https://example.test/app/hub?id=1" to true,
+            "https://example.test/health?next=/_blazor?id=1" to false,
+        )) {
+            val message = pair(request(wire) { url }, response(wire))
+            assertEquals(expected, requestEditor.isEnabledFor(message))
+            assertEquals(expected, responseEditor.isEnabledFor(message))
+        }
     }
 
     @Test
@@ -253,6 +269,7 @@ class BTPHttpEditorsTest {
             "toByteArray" -> bytes(requestHeaders.toByteArray() + body)
             "withBody" -> { rewrites++; request((args[0] as BurpByteArray).bytes) }
             "url" -> url()
+            "pathWithoutQuery" -> java.net.URI(url()).rawPath
             "httpVersion" -> "HTTP/1.1"
             "contentType" -> contentType
             else -> error("Unexpected request call: $method")

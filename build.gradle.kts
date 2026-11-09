@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "com.gdssecurity"
-version = "1.1-native-ws"
+version = "1.1.1"
 
 // Use the host JDK while restricting bytecode and JDK APIs to Java 21.
 kotlin {

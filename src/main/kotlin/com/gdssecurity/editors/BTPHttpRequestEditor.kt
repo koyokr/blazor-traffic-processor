@@ -25,6 +25,7 @@ import burp.api.montoya.http.message.requests.MalformedRequestException
 import burp.api.montoya.ui.Selection
 import burp.api.montoya.ui.editor.extension.EditorMode
 import burp.api.montoya.ui.editor.extension.ExtensionProvidedHttpRequestEditor
+import com.gdssecurity.settings.BTPSettings
 import com.gdssecurity.helpers.BTPConstants
 import com.gdssecurity.helpers.BlazorFrameValidator
 import com.gdssecurity.helpers.BlazorHelper
@@ -34,6 +35,7 @@ import java.awt.Component
 class BTPHttpRequestEditor(
     private val montoya: MontoyaApi,
     private val editorMode: EditorMode,
+    private val settings: BTPSettings = BTPSettings(),
 ) : ExtensionProvidedHttpRequestEditor {
     private var originalRequest: HttpRequest? = null
     private var decoded = false
@@ -63,7 +65,7 @@ class BTPHttpRequestEditor(
         editor.setEditable(false)
         editor.contents = BurpByteArray.byteArray("")
         if (original == null) return
-        codec.unpackJson(original.body().bytes).mapCatching { json ->
+        codec.unpackJson(original.body().bytes, binaryAnalysis = settings.current.binaryAnalysis).mapCatching { json ->
             original.withBody(BurpByteArray.byteArray(json)).toByteArray()
         }.fold(
             onSuccess = {
@@ -82,7 +84,7 @@ class BTPHttpRequestEditor(
         return try {
             val request = requestResponse?.request() ?: return false
             val url = request.url() ?: return false
-            url.contains(BTPConstants.BLAZOR_URL) && request.httpVersion() != null &&
+            settings.current.matchesPath(request.pathWithoutQuery()) && request.httpVersion() != null &&
                 request.contentType() != ContentType.JSON && montoya.scope().isInScope(url) &&
                 BlazorFrameValidator.isBlazorPack(request.body()?.bytes)
         } catch (_: MalformedRequestException) {

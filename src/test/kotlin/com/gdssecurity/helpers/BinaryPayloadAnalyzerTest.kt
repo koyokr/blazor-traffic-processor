@@ -1,5 +1,6 @@
 package com.gdssecurity.helpers
 
+import org.json.JSONArray
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayOutputStream
@@ -21,15 +22,15 @@ class BinaryPayloadAnalyzerTest {
 
     @Test
     fun extractsRenderBatchFramesAndStringTable() {
-        val analysis = BinaryPayloadAnalyzer.analyze(renderBatchWithTextFrame("authenticated dashboard"), "JS.RenderBatch")
+        val analysis = BinaryPayloadAnalyzer.analyze(renderBatchWithTextFrame("한글 中文 日本語 𠮷 😀"), "JS.RenderBatch")
         val renderBatch = analysis.getJSONObject("RenderBatch")
         val frame = renderBatch.getJSONArray("ReferenceFrames").getJSONObject(0)
 
         assertEquals("BlazorRenderBatch", analysis.getString("Format"))
         assertEquals(1, renderBatch.getInt("StringTableCount"))
-        assertEquals("authenticated dashboard", renderBatch.getJSONArray("Strings").getString(0))
+        assertEquals("한글 中文 日本語 𠮷 😀", renderBatch.getJSONArray("Strings").getString(0))
         assertEquals("Text", frame.getString("Type"))
-        assertEquals("authenticated dashboard", frame.getString("TextContent"))
+        assertEquals("한글 中文 日本語 𠮷 😀", frame.getString("TextContent"))
     }
 
     @Test
@@ -39,6 +40,47 @@ class BinaryPayloadAnalyzerTest {
         assertEquals("BlazorRenderBatch", analysis.getString("Format"))
         assertTrue(analysis.has("RenderBatchDecodeError"))
         assertFalse(analysis.has("RenderBatch"))
+    }
+
+    @Test
+    fun namesEditsAndSelectsTheirFieldsByAspNetCoreEditType() {
+        val bytes = RenderBatchWriter.batch(
+            ComponentDiff(3, listOf(
+                RenderEdit.PrependFrame(0, 1),
+                RenderEdit.SetAttribute(1, 2),
+                RenderEdit.RemoveAttribute(2, "disabled"),
+                RenderEdit.PermutationListEntry(3, 0),
+                RenderEdit.PermutationListEnd,
+                RenderEdit.StepOut,
+            )),
+            frames = listOf(RenderFrame.Text("a"), RenderFrame.Text("b"), RenderFrame.Text("c")),
+        )
+
+        val edits = BinaryPayloadAnalyzer.analyze(bytes, "JS.RenderBatch").getJSONObject("RenderBatch")
+            .getJSONArray("UpdatedComponents").getJSONObject(0).getJSONArray("Edits")
+
+        assertEquals(JSONArray("""[{"Type":"PrependFrame","SiblingIndex":0,"ReferenceFrameIndex":1},""" +
+            """{"Type":"SetAttribute","SiblingIndex":1,"ReferenceFrameIndex":2},""" +
+            """{"Type":"RemoveAttribute","SiblingIndex":2,"AttributeName":"disabled"},""" +
+            """{"Type":"PermutationListEntry","SiblingIndex":3,"MoveToSiblingIndex":0},""" +
+            """{"Type":"PermutationListEnd"},{"Type":"StepOut"}]""").toList(), edits.toList())
+    }
+
+    @Test
+    fun rendersNullAttributeValuesAsJsonNullAndHandlerIdsAsUnsigned() {
+        val bytes = RenderBatchWriter.batch(frames = listOf(
+            RenderFrame.Attribute("disabled", null, null),
+            RenderFrame.Attribute("disabled", "", null),
+            RenderFrame.Attribute("onclick", null, EventHandlerId(ULong.MAX_VALUE)),
+        ))
+
+        val frames = BinaryPayloadAnalyzer.analyze(bytes, "JS.RenderBatch").getJSONObject("RenderBatch")
+            .getJSONArray("ReferenceFrames")
+
+        assertTrue(frames.getJSONObject(0).isNull("AttributeValue"))
+        assertEquals("", frames.getJSONObject(1).getString("AttributeValue"))
+        assertEquals("0", frames.getJSONObject(1).getString("EventHandlerId"))
+        assertEquals("18446744073709551615", frames.getJSONObject(2).getString("EventHandlerId"))
     }
 
     private fun renderBatchWithTextFrame(text: String): ByteArray {

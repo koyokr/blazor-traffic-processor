@@ -19,29 +19,38 @@ import burp.api.montoya.BurpExtension
 import burp.api.montoya.MontoyaApi
 import burp.api.montoya.extension.ExtensionUnloadingHandler
 import burp.api.montoya.logging.Logging
+import com.gdssecurity.annotations.BTPWebSocketAnnotator
 import com.gdssecurity.helpers.BTPConstants
 import com.gdssecurity.providers.*
-import com.gdssecurity.views.BTPView
+import com.gdssecurity.settings.BTPSettings
+import com.gdssecurity.views.BTPSettingsView
 
 /** Public no-argument entry point loaded by Burp as a Java extension. */
 class BlazorTrafficProcessor : BurpExtension, ExtensionUnloadingHandler {
     private lateinit var logging: Logging
+    private var annotator: BTPWebSocketAnnotator? = null
 
     override fun initialize(api: MontoyaApi) {
         api.extension().setName(BTPConstants.EXTENSION_NAME)
         logging = api.logging()
         val ui = api.userInterface()
-        ui.registerHttpRequestEditorProvider(BTPHttpRequestEditorProvider(api))
-        ui.registerHttpResponseEditorProvider(BTPHttpResponseEditorProvider(api))
-        ui.registerWebSocketMessageEditorProvider(BTPWebSocketMessageEditorProvider(api))
-        val tab = BTPView(api)
+        val settings = BTPSettings(api.persistence().extensionData())
+        ui.registerHttpRequestEditorProvider(BTPHttpRequestEditorProvider(api, settings))
+        ui.registerHttpResponseEditorProvider(BTPHttpResponseEditorProvider(api, settings))
+        ui.registerWebSocketMessageEditorProvider(BTPWebSocketMessageEditorProvider(api, settings))
+        annotator = BTPWebSocketAnnotator(api.proxy(), settings, logging).also {
+            it.update(settings.current)
+            settings.addListener(it::update)
+        }
+        val tab = BTPSettingsView(settings)
+        ui.applyThemeToComponent(tab)
         ui.registerSuiteTab(BTPConstants.CAPTION, tab)
-        ui.registerContextMenuItemsProvider(BTPContextMenuItemsProvider(api, tab))
         api.extension().registerUnloadingHandler(this)
         logging.logToOutput(BTPConstants.LOADED_LOG_MSG)
     }
 
     override fun extensionUnloaded() {
+        annotator?.close()
         logging.logToOutput(BTPConstants.UNLOADED_LOG_MSG)
     }
 }

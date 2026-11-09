@@ -16,11 +16,8 @@
 package com.gdssecurity.helpers
 
 object BTPConstants {
-    const val EXTENSION_NAME = "BlazorTrafficProcessor Native WebSocket"
+    const val EXTENSION_NAME = "BlazorTrafficProcessor"
     const val CAPTION = "BTP"
-    const val SEND_TO_BTP_CAPTION = "Send body to BTP tab"
-    const val LOADED_LOG_MSG = "[+] BTP v1.1 Native WebSocket Extension loaded."
-    const val UNLOADED_LOG_MSG = "[*] BTP v1.1 Native WebSocket Extension unloaded."
-
-    const val BLAZOR_URL = "_blazor?id="
+    const val LOADED_LOG_MSG = "[+] BTP v1.1.1 Extension loaded."
+    const val UNLOADED_LOG_MSG = "[*] BTP v1.1.1 Extension unloaded."
 }

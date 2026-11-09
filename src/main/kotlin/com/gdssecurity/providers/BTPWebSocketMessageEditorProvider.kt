@@ -19,9 +19,10 @@ import burp.api.montoya.MontoyaApi
 import burp.api.montoya.ui.editor.extension.EditorCreationContext
 import burp.api.montoya.ui.editor.extension.ExtensionProvidedWebSocketMessageEditor
 import burp.api.montoya.ui.editor.extension.WebSocketMessageEditorProvider
+import com.gdssecurity.settings.BTPSettings
 import com.gdssecurity.editors.BTPWebSocketMessageEditor
 
-class BTPWebSocketMessageEditorProvider(private val montoya: MontoyaApi) : WebSocketMessageEditorProvider {
+class BTPWebSocketMessageEditorProvider(private val montoya: MontoyaApi, private val settings: BTPSettings) : WebSocketMessageEditorProvider {
     override fun provideMessageEditor(context: EditorCreationContext): ExtensionProvidedWebSocketMessageEditor =
-        BTPWebSocketMessageEditor(montoya, context.editorMode())
+        BTPWebSocketMessageEditor(montoya, context.editorMode(), settings)
 }
