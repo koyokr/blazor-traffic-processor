@@ -18,18 +18,13 @@ package com.gdssecurity.helpers
 import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 
 /** Produces bounded, read-only hints for MessagePack binary arguments. */
 object BinaryPayloadAnalyzer {
-    private const val RENDER_BATCH_FOOTER_SIZE = 20
-    private const val REFERENCE_FRAME_SIZE = 20
-    private const val EDIT_SIZE = 16
     private const val MAX_OUTPUT_ITEMS = 512
-    private const val MAX_STRING_TABLE_ENTRIES = 100_000
     private const val MAX_TEXT_CHARS = 4_096
     private const val MIN_PRINTABLE_RUN = 4
 
@@ -46,7 +41,7 @@ object BinaryPayloadAnalyzer {
         if (target == "JS.RenderBatch") {
             try {
                 analysis.put("Format", "BlazorRenderBatch")
-                analysis.put("RenderBatch", decodeRenderBatch(bytes))
+                analysis.put("RenderBatch", renderBatchJson(RenderBatch.decode(bytes)))
             } catch (exception: IllegalArgumentException) {
                 analysis.put("RenderBatchDecodeError", exception.message)
             }
@@ -54,205 +49,61 @@ object BinaryPayloadAnalyzer {
         return analysis
     }
 
-    private fun decodeRenderBatch(bytes: ByteArray): JSONObject {
-        require(bytes.size >= RENDER_BATCH_FOOTER_SIZE + 16) { "Payload is too short for a render batch." }
-        val footer = bytes.size - RENDER_BATCH_FOOTER_SIZE
-        val updated = readInt32(bytes, footer)
-        val references = readInt32(bytes, footer + 4)
-        val disposedComponents = readInt32(bytes, footer + 8)
-        val disposedHandlers = readInt32(bytes, footer + 12)
-        val table = readInt32(bytes, footer + 16)
-        requireOrderedOffsets(footer, updated, references, disposedComponents, disposedHandlers, table)
-        val strings = readStringTable(bytes, table, footer)
-        return JSONObject()
-            .put("UpdatedComponents", readUpdatedComponents(bytes, updated, references, strings))
-            .put("ReferenceFrames", readReferenceFrames(bytes, references, disposedComponents, strings))
-            .put("DisposedComponentIds", readInt32Array(bytes, disposedComponents, disposedHandlers))
-            .put("DisposedEventHandlerIds", readUInt64Array(bytes, disposedHandlers, table))
-            .put("StringTableCount", strings.size)
-            .put("Strings", limitedStrings(strings))
-            .apply { if (strings.size > MAX_OUTPUT_ITEMS) put("StringsTruncated", true) }
+    private fun renderBatchJson(batch: RenderBatch): JSONObject = JSONObject()
+        .put("UpdatedComponents", limited(batch.updatedComponents) { _, diff ->
+            JSONObject().put("ComponentId", diff.componentId).put("Edits", limited(diff.edits) { _, edit -> editJson(edit) })
+        })
+        .put("ReferenceFrames", limited(batch.referenceFrames, ::frameJson))
+        .put("DisposedComponentIds", JSONArray(batch.disposedComponentIds.take(MAX_OUTPUT_ITEMS)))
+        .put("DisposedEventHandlerIds", JSONArray(batch.disposedEventHandlerIds.take(MAX_OUTPUT_ITEMS).map { it.toString() }))
+        .put("StringTableCount", batch.strings.size)
+        .put("Strings", JSONArray(batch.strings.take(MAX_OUTPUT_ITEMS).map(::truncate)))
+        .apply { if (batch.strings.size > MAX_OUTPUT_ITEMS) put("StringsTruncated", true) }
+
+    private fun <T> limited(items: List<T>, json: (Int, T) -> JSONObject): JSONArray = JSONArray().apply {
+        items.take(MAX_OUTPUT_ITEMS).forEachIndexed { index, item -> put(json(index, item)) }
+        if (items.size > MAX_OUTPUT_ITEMS) put(JSONObject().put("Truncated", true).put("TotalCount", items.size))
     }
 
-    private fun readUpdatedComponents(bytes: ByteArray, offset: Int, sectionEnd: Int, strings: List<String>): JSONArray {
-        val count = readCount(bytes, offset, sectionEnd, 4, "updated components")
-        val components = JSONArray()
-        repeat(minOf(count, MAX_OUTPUT_ITEMS)) { index ->
-            val diffOffset = readInt32(bytes, offset + 4 + index * 4)
-            requireRange(diffOffset, 8, offset, "component diff")
-            components.put(JSONObject().put("ComponentId", readInt32(bytes, diffOffset))
-                .put("Edits", readEdits(bytes, diffOffset + 4, offset, strings)))
+    private fun editJson(edit: RenderEdit): JSONObject {
+        val json = JSONObject().put("Type", edit.javaClass.simpleName)
+        fun at(siblingIndex: Int) = json.put("SiblingIndex", siblingIndex)
+        when (edit) {
+            is RenderEdit.PrependFrame -> at(edit.siblingIndex).put("ReferenceFrameIndex", edit.frameIndex)
+            is RenderEdit.RemoveFrame -> at(edit.siblingIndex)
+            is RenderEdit.SetAttribute -> at(edit.siblingIndex).put("ReferenceFrameIndex", edit.frameIndex)
+            is RenderEdit.RemoveAttribute -> at(edit.siblingIndex).put("AttributeName", text(edit.name))
+            is RenderEdit.UpdateText -> at(edit.siblingIndex).put("ReferenceFrameIndex", edit.frameIndex)
+            is RenderEdit.StepIn -> at(edit.siblingIndex)
+            RenderEdit.StepOut, RenderEdit.PermutationListEnd -> Unit
+            is RenderEdit.UpdateMarkup -> at(edit.siblingIndex).put("ReferenceFrameIndex", edit.frameIndex)
+            is RenderEdit.PermutationListEntry -> at(edit.siblingIndex).put("MoveToSiblingIndex", edit.moveToSiblingIndex)
+            is RenderEdit.Unknown -> json.put("Type", "Unknown(${edit.type})").put("SiblingIndex", edit.siblingIndex)
         }
-        if (count > MAX_OUTPUT_ITEMS) components.put(JSONObject().put("Truncated", true).put("TotalCount", count))
-        return components
+        return json
     }
 
-    private fun readEdits(bytes: ByteArray, offset: Int, sectionEnd: Int, strings: List<String>): JSONArray {
-        val count = readCount(bytes, offset, sectionEnd, EDIT_SIZE, "render edits")
-        val edits = JSONArray()
-        repeat(minOf(count, MAX_OUTPUT_ITEMS)) { index ->
-            val entry = offset + 4 + index * EDIT_SIZE
-            val type = readInt32(bytes, entry)
-            val edit = JSONObject().put("Type", editTypeName(type)).put("SiblingIndex", readInt32(bytes, entry + 4))
-            when (type) {
-                0, 2, 4, 7 -> edit.put("ReferenceFrameIndex", readInt32(bytes, entry + 8))
-                3 -> edit.put("AttributeName", stringAt(strings, readInt32(bytes, entry + 12)))
-                8 -> edit.put("MoveToSiblingIndex", readInt32(bytes, entry + 8))
+    private fun frameJson(index: Int, frame: RenderFrame): JSONObject {
+        val json = JSONObject().put("Index", index).put("Type", frame.javaClass.simpleName)
+        when (frame) {
+            is RenderFrame.Element -> json.put("SubtreeLength", frame.subtreeLength).put("ElementName", text(frame.name))
+            is RenderFrame.Text -> json.put("TextContent", text(frame.text))
+            is RenderFrame.Attribute -> json.put("AttributeName", text(frame.name)).put("AttributeValue", text(frame.value))
+                .put("EventHandlerId", frame.eventHandlerId?.toString() ?: "0")
+            is RenderFrame.Component -> json.put("SubtreeLength", frame.subtreeLength).put("ComponentId", frame.componentId)
+            is RenderFrame.Region -> json.put("SubtreeLength", frame.subtreeLength)
+            is RenderFrame.ElementReferenceCapture -> json.put("CaptureId", text(frame.captureId))
+            is RenderFrame.Markup -> json.put("MarkupContent", text(frame.markup))
+            RenderFrame.ComponentReferenceCapture, RenderFrame.ComponentRenderMode, RenderFrame.NamedEvent -> Unit
+            is RenderFrame.Unknown -> {
+                json.put("Type", "Unknown(${frame.type})")
+                frame.fields.forEachIndexed { field, value -> json.put("Field${field + 1}", value) }
             }
-            edits.put(edit)
         }
-        if (count > MAX_OUTPUT_ITEMS) edits.put(JSONObject().put("Truncated", true).put("TotalCount", count))
-        return edits
+        return json
     }
 
-    private fun readReferenceFrames(bytes: ByteArray, offset: Int, sectionEnd: Int, strings: List<String>): JSONArray {
-        val count = readCount(bytes, offset, sectionEnd, REFERENCE_FRAME_SIZE, "reference frames")
-        val frames = JSONArray()
-        repeat(minOf(count, MAX_OUTPUT_ITEMS)) { index ->
-            val entry = offset + 4 + index * REFERENCE_FRAME_SIZE
-            val type = readInt32(bytes, entry)
-            val frame = JSONObject().put("Index", index).put("Type", frameTypeName(type))
-            when (type) {
-                1 -> {
-                    frame.put("SubtreeLength", readInt32(bytes, entry + 4))
-                    frame.put("ElementName", stringAt(strings, readInt32(bytes, entry + 8)))
-                }
-                2 -> frame.put("TextContent", stringAt(strings, readInt32(bytes, entry + 4)))
-                3 -> {
-                    frame.put("AttributeName", stringAt(strings, readInt32(bytes, entry + 4)))
-                    frame.put("AttributeValue", stringAt(strings, readInt32(bytes, entry + 8)))
-                    frame.put("EventHandlerId", readUInt64(bytes, entry + 12))
-                }
-                4 -> {
-                    frame.put("SubtreeLength", readInt32(bytes, entry + 4))
-                    frame.put("ComponentId", readInt32(bytes, entry + 8))
-                }
-                5 -> frame.put("SubtreeLength", readInt32(bytes, entry + 4))
-                6 -> frame.put("CaptureId", stringAt(strings, readInt32(bytes, entry + 4)))
-                8 -> frame.put("MarkupContent", stringAt(strings, readInt32(bytes, entry + 4)))
-                else -> {
-                    frame.put("Field1", readInt32(bytes, entry + 4))
-                    frame.put("Field2", readInt32(bytes, entry + 8))
-                    frame.put("Field3", readInt32(bytes, entry + 12))
-                    frame.put("Field4", readInt32(bytes, entry + 16))
-                }
-            }
-            frames.put(frame)
-        }
-        if (count > MAX_OUTPUT_ITEMS) frames.put(JSONObject().put("Truncated", true).put("TotalCount", count))
-        return frames
-    }
-
-    private fun readInt32Array(bytes: ByteArray, offset: Int, sectionEnd: Int): JSONArray {
-        val count = readCount(bytes, offset, sectionEnd, 4, "disposed component IDs")
-        return JSONArray().apply {
-            repeat(minOf(count, MAX_OUTPUT_ITEMS)) { put(readInt32(bytes, offset + 4 + it * 4)) }
-        }
-    }
-
-    private fun readUInt64Array(bytes: ByteArray, offset: Int, sectionEnd: Int): JSONArray {
-        val count = readCount(bytes, offset, sectionEnd, 8, "disposed event handler IDs")
-        return JSONArray().apply {
-            repeat(minOf(count, MAX_OUTPUT_ITEMS)) { put(readUInt64(bytes, offset + 4 + it * 8)) }
-        }
-    }
-
-    private fun readStringTable(bytes: ByteArray, tableOffset: Int, footerOffset: Int): List<String> {
-        val tableBytes = footerOffset - tableOffset
-        require(tableBytes >= 0 && tableBytes % 4 == 0) { "Invalid render-batch string table." }
-        val count = tableBytes / 4
-        require(count <= MAX_STRING_TABLE_ENTRIES) { "Render-batch string table is unreasonably large." }
-        return List(count) { index ->
-            val stringOffset = readInt32(bytes, tableOffset + index * 4)
-            require(stringOffset >= 0 && stringOffset < tableOffset) { "Invalid render-batch string offset." }
-            val length = readVarInt(bytes, stringOffset, tableOffset)
-            val valueOffset = stringOffset + length.bytesRead
-            requireRange(valueOffset, length.value, tableOffset, "render-batch string")
-            String(bytes, valueOffset, length.value, StandardCharsets.UTF_8)
-        }
-    }
-
-    private fun limitedStrings(strings: List<String>): JSONArray = JSONArray().apply {
-        repeat(minOf(strings.size, MAX_OUTPUT_ITEMS)) { put(truncate(strings[it])) }
-    }
-
-    private fun readCount(bytes: ByteArray, offset: Int, sectionEnd: Int, entrySize: Int, label: String): Int {
-        requireRange(offset, 4, sectionEnd, label)
-        val count = readInt32(bytes, offset)
-        require(count >= 0 && count <= (sectionEnd - offset - 4) / entrySize) { "Invalid $label count." }
-        return count
-    }
-
-    private fun requireOrderedOffsets(footerOffset: Int, vararg offsets: Int) {
-        var previous = 0
-        for (offset in offsets) {
-            require(offset >= previous && offset <= footerOffset) { "Invalid render-batch section offsets." }
-            previous = offset
-        }
-    }
-
-    private fun requireRange(offset: Int, length: Int, exclusiveEnd: Int, label: String) {
-        require(offset >= 0 && length >= 0 && offset <= exclusiveEnd && length <= exclusiveEnd - offset) {
-            "Invalid $label range."
-        }
-    }
-
-    private fun readInt32(bytes: ByteArray, offset: Int): Int {
-        require(offset >= 0 && offset <= bytes.size - 4) { "Unexpected end of binary payload." }
-        return ByteBuffer.wrap(bytes, offset, 4).order(ByteOrder.LITTLE_ENDIAN).int
-    }
-
-    private fun readUInt64(bytes: ByteArray, offset: Int): String {
-        require(offset >= 0 && offset <= bytes.size - 8) { "Unexpected end of binary payload." }
-        return java.lang.Long.toUnsignedString(ByteBuffer.wrap(bytes, offset, 8).order(ByteOrder.LITTLE_ENDIAN).long)
-    }
-
-    private fun readVarInt(bytes: ByteArray, offset: Int, exclusiveEnd: Int): VarInt {
-        var value = 0
-        var shift = 0
-        for (index in 0 until 4) {
-            if (offset + index >= exclusiveEnd) break
-            val current = bytes[offset + index].toInt() and 0xff
-            value = value or ((current and 0x7f) shl shift)
-            if (current and 0x80 == 0) return VarInt(value, index + 1)
-            shift += 7
-        }
-        throw IllegalArgumentException("Invalid render-batch string length.")
-    }
-
-    private fun stringAt(strings: List<String>, index: Int): String {
-        if (index == -1) return JSONObject.NULL.toString()
-        require(index in strings.indices) { "Invalid render-batch string index." }
-        return truncate(strings[index])
-    }
-
-    private fun frameTypeName(type: Int): String = when (type) {
-        1 -> "Element"
-        2 -> "Text"
-        3 -> "Attribute"
-        4 -> "Component"
-        5 -> "Region"
-        6 -> "ElementReferenceCapture"
-        7 -> "ComponentReferenceCapture"
-        8 -> "Markup"
-        9 -> "ComponentRenderMode"
-        10 -> "NamedEvent"
-        else -> "Unknown($type)"
-    }
-
-    private fun editTypeName(type: Int): String = when (type) {
-        0 -> "PrependFrame"
-        1 -> "RemoveFrame"
-        2 -> "SetAttribute"
-        3 -> "RemoveAttribute"
-        4 -> "UpdateText"
-        5 -> "StepIn"
-        6 -> "StepOut"
-        7 -> "UpdateMarkup"
-        8 -> "PermutationListEntry"
-        9 -> "PermutationListEnd"
-        else -> "Unknown($type)"
-    }
+    private fun text(value: String?): Any = value?.let(::truncate) ?: JSONObject.NULL
 
     private fun detectFileFormat(bytes: ByteArray): String = when {
         startsWith(bytes, byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte())) -> "PNG"
@@ -303,6 +154,4 @@ object BinaryPayloadAnalyzer {
     }
 
     private fun truncate(value: String): String = value.take(MAX_TEXT_CHARS)
-
-    private data class VarInt(val value: Int, val bytesRead: Int)
 }
