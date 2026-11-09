@@ -21,15 +21,15 @@ class BinaryPayloadAnalyzerTest {
 
     @Test
     fun extractsRenderBatchFramesAndStringTable() {
-        val analysis = BinaryPayloadAnalyzer.analyze(renderBatchWithTextFrame("authenticated dashboard"), "JS.RenderBatch")
+        val analysis = BinaryPayloadAnalyzer.analyze(renderBatchWithTextFrame("한글 中文 日本語 𠮷 😀"), "JS.RenderBatch")
         val renderBatch = analysis.getJSONObject("RenderBatch")
         val frame = renderBatch.getJSONArray("ReferenceFrames").getJSONObject(0)
 
         assertEquals("BlazorRenderBatch", analysis.getString("Format"))
         assertEquals(1, renderBatch.getInt("StringTableCount"))
-        assertEquals("authenticated dashboard", renderBatch.getJSONArray("Strings").getString(0))
+        assertEquals("한글 中文 日本語 𠮷 😀", renderBatch.getJSONArray("Strings").getString(0))
         assertEquals("Text", frame.getString("Type"))
-        assertEquals("authenticated dashboard", frame.getString("TextContent"))
+        assertEquals("한글 中文 日本語 𠮷 😀", frame.getString("TextContent"))
     }
 
     @Test

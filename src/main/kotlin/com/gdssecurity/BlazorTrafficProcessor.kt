@@ -21,7 +21,8 @@ import burp.api.montoya.extension.ExtensionUnloadingHandler
 import burp.api.montoya.logging.Logging
 import com.gdssecurity.helpers.BTPConstants
 import com.gdssecurity.providers.*
-import com.gdssecurity.views.BTPView
+import com.gdssecurity.settings.BTPSettings
+import com.gdssecurity.views.BTPSettingsView
 
 /** Public no-argument entry point loaded by Burp as a Java extension. */
 class BlazorTrafficProcessor : BurpExtension, ExtensionUnloadingHandler {
@@ -31,12 +32,13 @@ class BlazorTrafficProcessor : BurpExtension, ExtensionUnloadingHandler {
         api.extension().setName(BTPConstants.EXTENSION_NAME)
         logging = api.logging()
         val ui = api.userInterface()
-        ui.registerHttpRequestEditorProvider(BTPHttpRequestEditorProvider(api))
-        ui.registerHttpResponseEditorProvider(BTPHttpResponseEditorProvider(api))
-        ui.registerWebSocketMessageEditorProvider(BTPWebSocketMessageEditorProvider(api))
-        val tab = BTPView(api)
+        val settings = BTPSettings(api.persistence().extensionData())
+        ui.registerHttpRequestEditorProvider(BTPHttpRequestEditorProvider(api, settings))
+        ui.registerHttpResponseEditorProvider(BTPHttpResponseEditorProvider(api, settings))
+        ui.registerWebSocketMessageEditorProvider(BTPWebSocketMessageEditorProvider(api, settings))
+        val tab = BTPSettingsView(settings)
+        ui.applyThemeToComponent(tab)
         ui.registerSuiteTab(BTPConstants.CAPTION, tab)
-        ui.registerContextMenuItemsProvider(BTPContextMenuItemsProvider(api, tab))
         api.extension().registerUnloadingHandler(this)
         logging.logToOutput(BTPConstants.LOADED_LOG_MSG)
     }

@@ -24,6 +24,7 @@ import burp.api.montoya.http.message.responses.HttpResponse
 import burp.api.montoya.ui.Selection
 import burp.api.montoya.ui.editor.extension.EditorMode
 import burp.api.montoya.ui.editor.extension.ExtensionProvidedHttpResponseEditor
+import com.gdssecurity.settings.BTPSettings
 import com.gdssecurity.helpers.BTPConstants
 import com.gdssecurity.helpers.BlazorFrameValidator
 import com.gdssecurity.helpers.BlazorHelper
@@ -31,7 +32,7 @@ import com.gdssecurity.views.withEditorContextMenu
 import java.awt.Component
 
 /** Response conversion is a read-only preview; the original response is always returned. */
-class BTPHttpResponseEditor(private val montoya: MontoyaApi, editorMode: EditorMode) : ExtensionProvidedHttpResponseEditor {
+class BTPHttpResponseEditor(private val montoya: MontoyaApi, editorMode: EditorMode, private val settings: BTPSettings = BTPSettings()) : ExtensionProvidedHttpResponseEditor {
     private var originalResponse: HttpResponse? = null
     private val editor = montoya.userInterface().createRawEditor().apply { setEditable(false) }
     private val codec = BlazorHelper()
@@ -44,7 +45,7 @@ class BTPHttpResponseEditor(private val montoya: MontoyaApi, editorMode: EditorM
         originalResponse = original
         editor.contents = BurpByteArray.byteArray("")
         if (original == null) return
-        codec.unpackJson(original.body().bytes).mapCatching { json ->
+        codec.unpackJson(original.body().bytes, binaryAnalysis = settings.current.binaryAnalysis).mapCatching { json ->
             original.withBody(BurpByteArray.byteArray(json)).toByteArray()
         }.fold(
             onSuccess = { editor.contents = it },
@@ -59,7 +60,7 @@ class BTPHttpResponseEditor(private val montoya: MontoyaApi, editorMode: EditorM
         return try {
             val response = requestResponse?.response() ?: return false
             val url = requestResponse.request()?.url() ?: return false
-            url.contains(BTPConstants.BLAZOR_URL) && response.httpVersion() != null &&
+            settings.current.matchesPath(requestResponse.request()?.pathWithoutQuery()) && response.httpVersion() != null &&
                 montoya.scope()?.isInScope(url) == true && BlazorFrameValidator.isBlazorPack(response.body()?.bytes)
         } catch (_: MalformedRequestException) {
             // The associated request may not have a valid URL yet.

@@ -19,9 +19,10 @@ import burp.api.montoya.MontoyaApi
 import burp.api.montoya.ui.editor.extension.EditorCreationContext
 import burp.api.montoya.ui.editor.extension.ExtensionProvidedHttpRequestEditor
 import burp.api.montoya.ui.editor.extension.HttpRequestEditorProvider
+import com.gdssecurity.settings.BTPSettings
 import com.gdssecurity.editors.BTPHttpRequestEditor
 
-class BTPHttpRequestEditorProvider(private val montoya: MontoyaApi) : HttpRequestEditorProvider {
+class BTPHttpRequestEditorProvider(private val montoya: MontoyaApi, private val settings: BTPSettings) : HttpRequestEditorProvider {
     override fun provideHttpRequestEditor(editorContext: EditorCreationContext): ExtensionProvidedHttpRequestEditor =
-        BTPHttpRequestEditor(montoya, editorContext.editorMode())
+        BTPHttpRequestEditor(montoya, editorContext.editorMode(), settings)
 }
