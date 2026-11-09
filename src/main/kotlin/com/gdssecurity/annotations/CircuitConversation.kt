@@ -250,16 +250,16 @@ class CircuitConversation(private val tree: RenderTreeMirror = RenderTreeMirror(
         for (change in changes) when (change) {
             is RenderChange.Inserted -> {
                 items += "+" + change.element.describe(RENDER_TEXT_LIMIT)
-                alert = alert || change.element.tag.equals("script", ignoreCase = true)
+                alert = alert || isScriptTag(change.element.tag)
             }
             is RenderChange.TextShown -> items += "text " + quote(change.text.collapseWhitespace(), VALUE_LIMIT)
             is RenderChange.MarkupShown -> {
                 items += "markup " + quote(change.markup, VALUE_LIMIT)
-                alert = alert || SCRIPT_TAG.containsMatchIn(change.markup)
+                alert = alert || hasScriptTag(change.markup)
             }
             is RenderChange.AttributeSet -> {
                 items += "set ${change.target?.describe(RENDER_TEXT_LIMIT) ?: "?"} ${token(change.name, VALUE_LIMIT)}=${quote(change.value, VALUE_LIMIT)}"
-                alert = alert || change.name.startsWith("on", ignoreCase = true)
+                alert = alert || isEventAttribute(change.name)
             }
             is RenderChange.AttributeRemoved ->
                 items += "unset ${change.target?.describe(RENDER_TEXT_LIMIT) ?: "?"} ${token(change.name, VALUE_LIMIT)}"
@@ -299,7 +299,6 @@ class CircuitConversation(private val tree: RenderTreeMirror = RenderTreeMirror(
         const val RENDER_ITEMS_LIMIT = 300
         val CODE_EVALUATING_FUNCTIONS = setOf("eval", "Function", "setTimeout", "setInterval", "execScript",
             "document.write", "document.writeln")
-        val SCRIPT_TAG = Regex("<script", RegexOption.IGNORE_CASE)
 
         fun jsonArray(text: String?): JSONArray? =
             text?.takeIf { it.length <= MAX_JSON_CHARS }?.let { runCatching { JSONArray(it) }.getOrNull() }

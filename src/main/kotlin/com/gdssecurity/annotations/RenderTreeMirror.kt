@@ -33,7 +33,8 @@ data class ElementLabel(
 
 /**
  * What a batch asked the browser to change, in edit order. Insertions report elements a user can act on or that run
- * code, plus text and markup outside them. Targets are null for components BTP has not mirrored since creation.
+ * code, plus text and markup outside them; code is reported wherever it sits in the inserted subtree, so how an element
+ * is labelled never hides it. Targets are null for components BTP has not mirrored since creation.
  */
 sealed interface RenderChange {
     data class Inserted(val element: ElementLabel) : RenderChange
@@ -45,6 +46,13 @@ sealed interface RenderChange {
     data class Unsynchronized(val componentId: Int) : RenderChange
     data object Overflow : RenderChange
 }
+
+/** The browser runs this element, markup or attribute value as script. */
+internal fun isScriptTag(tag: String?) = tag.equals("script", ignoreCase = true)
+internal fun hasScriptTag(markup: String) = SCRIPT_TAG.containsMatchIn(markup)
+internal fun isEventAttribute(name: String) = name.startsWith("on", ignoreCase = true)
+
+private val SCRIPT_TAG = Regex("<script", RegexOption.IGNORE_CASE)
 
 sealed interface BatchOutcome {
     data class Applied(val changes: List<RenderChange>) : BatchOutcome
@@ -316,14 +324,19 @@ class RenderTreeMirror(private val maxNodes: Int = 50_000) {
             }
         }
 
-        private fun report(built: List<Node>) {
+        private fun report(built: List<Node>, insideLabel: Boolean = false) {
             for (node in built) when (node) {
                 is Element -> {
-                    if (node.tag in INTERACTIVE_TAGS || node.handlers.isNotEmpty()) changes += RenderChange.Inserted(label(node))
-                    if (node.tag !in SELF_LABELLED_TAGS) report(node.children)
+                    if (isScriptTag(node.tag) || !insideLabel && (node.tag in INTERACTIVE_TAGS || node.handlers.isNotEmpty())) {
+                        changes += RenderChange.Inserted(label(node))
+                    }
+                    for ((name, value) in node.attributes) {
+                        if (isEventAttribute(name)) changes += RenderChange.AttributeSet(label(node), name, value)
+                    }
+                    report(node.children, insideLabel || node.tag in SELF_LABELLED_TAGS)
                 }
-                is Text -> node.text?.let(::reportText)
-                is Markup -> node.markup?.let { changes += RenderChange.MarkupShown(it) }
+                is Text -> if (!insideLabel) node.text?.let(::reportText)
+                is Markup -> node.markup?.takeIf { !insideLabel || hasScriptTag(it) }?.let { changes += RenderChange.MarkupShown(it) }
                 is ComponentSlot -> Unit
             }
         }

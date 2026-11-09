@@ -216,4 +216,19 @@ class CircuitConversationTest {
         assertEquals("""S>C RENDER! patch batch 3: markup "<script>steal()</script>"""",
             server(renderBatch(3, diff(1, RenderEdit.PrependFrame(1, 0)), frames = listOf(RenderFrame.Markup("<script>steal()</script>")))))
     }
+
+    @Test
+    fun flagsScriptsInsertedInsideOtherElementsOrAsInlineHandlers() {
+        server(invocation("JS.AttachComponent", 1, "app"))
+
+        assertEquals("""S>C RENDER! patch batch 2: set div onclick="alert(1)"""",
+            server(renderBatch(2, diff(1, RenderEdit.PrependFrame(0, 0)),
+                frames = listOf(element("div", 2), attribute("onclick", "alert(1)")))))
+        assertEquals("""S>C RENDER! patch batch 3: +button "Go steal()" +script "steal()"""",
+            server(renderBatch(3, diff(1, RenderEdit.PrependFrame(1, 0)),
+                frames = listOf(element("button", 4), text("Go "), element("script", 2), text("steal()")))))
+        assertEquals("""S>C RENDER! patch batch 4: +a "Home steal()" markup "<script>steal()</script>"""",
+            server(renderBatch(4, diff(1, RenderEdit.PrependFrame(2, 0)),
+                frames = listOf(element("a", 3), text("Home "), RenderFrame.Markup("<script>steal()</script>")))))
+    }
 }
