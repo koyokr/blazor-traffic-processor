@@ -24,6 +24,7 @@ import javax.swing.event.DocumentListener
 class BTPSettingsView(private val settings: BTPSettings) : JPanel(BorderLayout()) {
     private val analysis = JCheckBox("Analyze binary payloads")
     private val reassembly = JCheckBox("Reassemble fragmented WebSocket messages")
+    private val annotation = JCheckBox("Write a summary of each message to the Notes column")
     private val paths = JTextArea(6, 48).apply {
         font = Font(Font.MONOSPACED, Font.PLAIN, font.size)
         margin = Insets(4, 6, 4, 6)
@@ -46,6 +47,11 @@ class BTPSettingsView(private val settings: BTPSettings) : JPanel(BorderLayout()
         line(reassembly, top = 8)
         line(Hint("Applies to read-only history only. When off, incomplete messages are shown without a history lookup."), left = indent)
 
+        heading("WebSocket history notes", 2f)
+        line(annotation, top = 8)
+        line(Hint("Names the element behind each UI event, what the server rendered and any JavaScript it asked the browser to run."), left = indent)
+        line(Hint("Applies to connections opened after saving. Existing notes are never overwritten."), left = indent)
+
         heading("Endpoints", 2f)
         line(Hint("/_blazor and any path ending in /_blazor are always processed. Add other hub paths, one per line."), top = 6)
         line(JScrollPane(paths).apply { withEditorContextMenu() }, top = 8, fill = true)
@@ -67,6 +73,7 @@ class BTPSettingsView(private val settings: BTPSettings) : JPanel(BorderLayout()
         reset()
         analysis.addActionListener { refresh() }
         reassembly.addActionListener { refresh() }
+        annotation.addActionListener { refresh() }
         paths.document.addDocumentListener(object : DocumentListener {
             override fun insertUpdate(e: DocumentEvent) = refresh()
             override fun removeUpdate(e: DocumentEvent) = refresh()
@@ -79,12 +86,14 @@ class BTPSettingsView(private val settings: BTPSettings) : JPanel(BorderLayout()
         val options = settings.current
         analysis.isSelected = options.binaryAnalysis
         reassembly.isSelected = options.reassembleMessages
+        annotation.isSelected = options.annotateMessages
         paths.text = options.customPaths.joinToString("\n")
         refresh()
     }
 
     private fun isModified(): Boolean = settings.current.let {
         analysis.isSelected != it.binaryAnalysis || reassembly.isSelected != it.reassembleMessages ||
+            annotation.isSelected != it.annotateMessages ||
             paths.text.lines().map(String::trim).filter(String::isNotEmpty) != it.customPaths
     }
 
@@ -93,7 +102,9 @@ class BTPSettingsView(private val settings: BTPSettings) : JPanel(BorderLayout()
         if (apply.isEnabled) show(UNSAVED, error = false) else if (status.text == UNSAVED) show("", error = false)
     }
 
-    private fun save() = runCatching { settings.save(analysis.isSelected, reassembly.isSelected, paths.text) }.fold(
+    private fun save() = runCatching {
+        settings.save(analysis.isSelected, reassembly.isSelected, paths.text, annotation.isSelected)
+    }.fold(
         onSuccess = { reset(); show("Saved. Reopen messages to apply these settings.", error = false) },
         onFailure = { show(it.message ?: "Unable to save settings.", error = true) },
     )

@@ -13,7 +13,6 @@ import org.msgpack.value.ImmutableValue
 import org.msgpack.value.Value
 import org.msgpack.value.ValueFactory
 
-/** Synthetic BlazorPack traffic for annotation tests. */
 object BlazorWire {
     private val noHeaders = ValueFactory.newMap(emptyMap<Value, Value>())
 

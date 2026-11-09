@@ -63,7 +63,9 @@ class ExtensionJarTest {
                 assertEquals(1, calls.count { it.endsWith(".$registration") })
             }
             assertFalse(calls.any { it.endsWith(".registerContextMenuItemsProvider") })
-            assertFalse(calls.any { it.startsWith("Proxy.") || it == "MontoyaApi.proxy" || it == "MontoyaApi.http" })
+            assertEquals(listOf("Proxy.registerWebSocketCreationHandler"), calls.filter { it.startsWith("Proxy.") })
+            assertEquals(1, calls.count { it == "Registration.deregister" })
+            assertFalse(calls.any { it == "MontoyaApi.http" })
         }
     }
 

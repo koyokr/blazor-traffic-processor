@@ -108,7 +108,7 @@ class BTPHttpEditorsTest {
 
     @Test
     fun customPathsApplyToBothHttpEditorsWithoutMatchingQueryText() {
-        val settings = BTPSettings().apply { save(true, true, "/app/hub") }
+        val settings = BTPSettings().apply { save(true, true, "/app/hub", true) }
         val requestEditor = BTPHttpRequestEditor(api, EditorMode.DEFAULT, settings)
         val responseEditor = BTPHttpResponseEditor(api, EditorMode.DEFAULT, settings)
         for ((url, expected) in listOf(

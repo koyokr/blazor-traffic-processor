@@ -25,12 +25,14 @@ class BTPSettingsTest {
         val settings = BTPSettings(storage)
         assertTrue(settings.current.binaryAnalysis)
         assertTrue(settings.current.reassembleMessages)
-        settings.save(false, false, " /app/hub \n/app/hub\n/한글\n")
+        assertTrue(settings.current.annotateMessages)
+        settings.save(false, false, " /app/hub \n/app/hub\n/한글\n", annotateMessages = false)
         assertEquals(listOf("/app/hub", "/한글"), settings.current.customPaths)
+        assertFalse(settings.current.annotateMessages)
         assertEquals(settings.current, BTPSettings(storage).current)
         val before = settings.current
         for (invalid in listOf("https://example.test/hub", "//example.test", "/hub?q=1", "/hub#x", "/hub/*", "/a b")) {
-            assertThrows(IllegalArgumentException::class.java) { settings.save(true, true, invalid) }
+            assertThrows(IllegalArgumentException::class.java) { settings.save(true, true, invalid, true) }
             assertEquals(before, settings.current)
             assertEquals(before, BTPSettings(storage).current)
         }
@@ -43,7 +45,7 @@ class BTPSettingsTest {
     }
 
     @Test
-    fun settingsFormAppliesAllThreeOptions() {
+    fun settingsFormAppliesEveryOption() {
         SwingUtilities.invokeAndWait {
             val settings = BTPSettings()
             val view = BTPSettingsView(settings)
@@ -57,7 +59,7 @@ class BTPSettingsTest {
             controls.filterIsInstance<JTextArea>().single().text = "/custom/hub"
             assertTrue(apply.isEnabled)
             apply.doClick()
-            assertEquals(BTPSettings.Options(false, false, listOf("/custom/hub")), settings.current)
+            assertEquals(BTPSettings.Options(false, false, listOf("/custom/hub"), annotateMessages = false), settings.current)
             assertFalse(apply.isEnabled)
         }
     }
